@@ -1,4 +1,5 @@
 # Makefile for the Real-Time Incident Management & AI Analysis Pipeline
+# Done by TAMER ABDELFATTAH
 
 # Use bash for better command handling
 SHELL := /bin/bash

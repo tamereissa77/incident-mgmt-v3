@@ -6,10 +6,53 @@ This repository is an ideal learning resource for data engineers, DevOps enginee
 
 ## Architecture Diagram
 
-The pipeline is composed of several key components that work in concert, as illustrated below:
+graph TD
+    subgraph User Interaction
+        U(User)
+    end
 
-![Architecture Diagram](httpsp://i.imgur.com/gK5eZlA.png)
-*(Assuming you will place the architecture image in an `assets` folder or link to it)*
+    subgraph Orchestration Layer [Apache Airflow]
+        A_UI(Airflow Web UI) --> A_SCH(Airflow Scheduler)
+        A_SCH --> A_DB[(PostgreSQL DB)]
+        A_SCH --> A_DAG(stream_orch_dag.py)
+    end
+    
+    subgraph Data Pipeline
+        direction LR
+        subgraph Data Generation
+            LG(log-generator.py)
+        end
+        subgraph Ingestion [Kafka]
+            K(Kafka Broker <br> Topic: incidents)
+        end
+        subgraph Processing [Spark]
+            SM(Spark Master) --> SW(Spark Worker)
+            SW --> SPARK_APP(stream_processing.py)
+        end
+        subgraph Storage
+            CSV[(Hourly CSV Files)]
+        end
+    end
+
+    subgraph AI Analysis [Streamlit & Gemini]
+        DASH(Tamer AI Dashboard)
+        API{Gemini 1.5 Pro API}
+    end
+
+    %% Define High-Level Connections
+    U -- "Monitors & Triggers" --> A_UI
+    
+    A_DAG -- "Starts" --> LG
+    A_DAG -- "Submits Job" --> SM
+    
+    LG -- "Sends Logs" --> K
+    SPARK_APP -- "Consumes Logs" --> K
+    SPARK_APP -- "Writes Processed CSVs" --> CSV
+    
+    DASH -- "Reads CSVs" --> CSV
+    U -- "Views & Analyzes" --> DASH
+    DASH -- "API Request" --> API
+    API -- "Returns Analysis" --> DASH
 
 ## ✨ Features
 

@@ -1,0 +1,9 @@
+faker
+confluent_kafka
+httpx
+attrs
+cachetools
+authlib
+referencing
+jsonschema
+requests

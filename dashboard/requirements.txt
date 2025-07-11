@@ -1,0 +1,6 @@
+# Correct content for ./dashboard/requirements.txt
+
+streamlit
+pandas
+google-generativeai
+watchdog

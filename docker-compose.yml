@@ -1,0 +1,300 @@
+x-airflow-common: &airflow-common
+  image: apache/airflow:2.10.5
+  environment:
+    - AIRFLOW__CORE__EXECUTOR=LocalExecutor
+    - AIRFLOW__CORE__LOAD_EXAMPLES=False
+    - AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION=False
+    - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow_user:airflow_pass@postgres_airflow:5432/airflow_db
+    - AIRFLOW__WEBSERVER__EXPOSE_CONFIG=True
+    - _PIP_ADDITIONAL_REQUIREMENTS=apache-airflow-providers-docker==3.9.1 requests==2.31.0
+  volumes:
+    - ./airflow/dags:/opt/airflow/dags:rw
+    - ./airflow/logs:/opt/airflow/logs:rw
+    - ./airflow/plugins:/opt/airflow/plugins:rw
+    - /var/run/docker.sock:/var/run/docker.sock
+    - ./:/opt/project_root
+  user: "airflow"
+  depends_on:
+    postgres_airflow:
+      condition: service_healthy
+
+services:
+  kafka1:
+    image: confluentinc/cp-server:7.9.1
+    container_name: kafka1
+    hostname: kafka1
+    ports:
+      - "9092:9092"
+      - "9071:9071"
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: 'broker,controller'
+      # ---- CORRECTED FOR SINGLE BROKER ----
+      KAFKA_CONTROLLER_QUORUM_VOTERS: '1@kafka1:9071'
+      KAFKA_LISTENERS: 'PLAINTEXT://kafka1:29092,CONTROLLER://kafka1:9071,PLAINTEXT_HOST://0.0.0.0:9092'
+      KAFKA_ADVERTISED_LISTENERS: 'PLAINTEXT://kafka1:29092,PLAINTEXT_HOST://localhost:9092'
+      KAFKA_INTER_BROKER_LISTENER_NAME: 'PLAINTEXT'
+      KAFKA_CONTROLLER_LISTENER_NAMES: 'CONTROLLER'
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: 'CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT'
+      # ---- CORRECTED REPLICATION FACTORS TO 1 ----
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_CONFLUENT_LICENSE_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_CONFLUENT_BALANCER_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1 # <-- Must be <= replication factor
+      KAFKA_JMX_PORT: 9101
+      KAFKA_JMX_HOSTNAME: localhost
+      KAFKA_CONFLUENT_SCHEMA_REGISTRY_URL: http://schema-registry:8081
+      KAFKA_METRIC_REPORTERS: io.confluent.metrics.reporter.ConfluentMetricsReporter
+      # ---- CORRECTED BOOTSTRAP SERVERS ----
+      CONFLUENT_METRICS_REPORTER_BOOTSTRAP_SERVERS: 'kafka1:29092'
+      CONFLUENT_METRICS_REPORTER_TOPIC_REPLICAS: 1
+      KAFKA_LOG_DIRS: '/var/lib/kafka/data'
+      CONFLUENT_METRICS_ENABLE: 'true'
+      CLUSTER_ID: 'B4ox8MWjRtSkKma7ZsxyVg'
+    volumes:
+      - kafka1_data_vol:/var/lib/kafka/data
+    networks:
+      - internal-network
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "9092"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+
+  # Dash board service
+  dashboard:
+    build:
+      context: ./dashboard
+    
+    # --- THIS IS THE LINE TO FIX ---
+    ports:
+      - "8501:8501" # This maps the container's port 8501 to your computer's port 8501
+    volumes:
+      - ./spark/spark-data:/opt/spark-data:ro
+    # ... ports, volumes, etc.
+    environment:
+      - GEMINI_API_KEY=AIzaSyBPJFULPCHK_npvQ2r1tu-bwQgtrAbXc94
+    networks:
+      - internal-network
+    restart: unless-stopped
+
+  schema-registry:
+    image: confluentinc/cp-schema-registry:7.9.1
+    container_name: schema-registry
+    hostname: schema-registry
+    ports:
+      - "8081:8081"
+    # ---- CORRECTED DEPENDENCIES ----
+    depends_on:
+      kafka1:
+        condition: service_healthy
+    environment:
+      SCHEMA_REGISTRY_HOST_NAME: schema-registry
+      # ---- CORRECTED BOOTSTRAP SERVERS ----
+      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: 'kafka1:29092'
+      SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8081
+    networks:
+      - internal-network
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "8081"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+
+  control-center:
+    image: confluentinc/cp-enterprise-control-center:7.9.1
+    hostname: control-center
+    container_name: control-center
+    # ---- CORRECTED DEPENDENCIES ----
+    depends_on:
+      kafka1:
+        condition: service_healthy
+      schema-registry:
+        condition: service_healthy
+    ports:
+      - "9021:9021"
+    environment:
+      # ---- CORRECTED BOOTSTRAP SERVERS & REPLICATION ----
+      CONTROL_CENTER_BOOTSTRAP_SERVERS: 'kafka1:29092'
+      CONTROL_CENTER_SCHEMA_REGISTRY_URL: "http://schema-registry:8081"
+      CONTROL_CENTER_REPLICATION_FACTOR: 1
+      CONTROL_CENTER_INTERNAL_TOPICS_PARTITIONS: 1
+      CONTROL_CENTER_MONITORING_INTERCEPTOR_TOPIC_PARTITIONS: 1
+      CONFLUENT_METRICS_TOPIC_REPLICATION: 1
+      PORT: 9021
+      CONTROL_CENTER_KSQL_ENABLE: "false"
+      CONTROL_CENTER_CONNECT_ENABLE: "false"
+    networks:
+      - internal-network
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "9021"]
+      interval: 5s
+      timeout: 5s
+      retries: 120
+    restart: unless-stopped
+
+  log-generator:
+    build:
+      context: log-generator
+      dockerfile: Dockerfile
+    container_name: log-generator
+    hostname: log-generator
+    networks:
+      - internal-network
+    # ---- CORRECTED DEPENDENCIES ----
+    depends_on:
+      kafka1:
+        condition: service_healthy
+      schema-registry:
+        condition: service_healthy
+
+  spark-master:
+    build:
+      context: spark
+      dockerfile: Dockerfile
+    container_name: spark-master
+    hostname: spark-master
+    ports:
+      - "8080:8080"
+      - "7077:7077"
+    environment:
+      - SPARK_MODE=master
+      - SPARK_RPC_AUTHENTICATION_ENABLED=no
+      - SPARK_RPC_ENCRYPTION_ENABLED=no
+      - SPARK_LOCAL_STORAGE_ENCRYPTION_ENABLED=no
+      - SPARK_SSL_ENABLED=no
+      - SPARK_USER=spark
+    volumes:
+      - ./spark/spark-apps:/opt/spark-apps:rw
+      - ./spark/spark-data:/opt/spark-data:rw
+      - ./spark/additional-jars:/opt/bitnami/spark/.ivy2:rw
+    networks:
+      - internal-network
+    # ---- CORRECTED DEPENDENCIES ----
+    depends_on:
+      kafka1:
+        condition: service_healthy
+      schema-registry:
+        condition: service_healthy
+    restart: unless-stopped
+
+  spark-worker:
+    build:
+      context: spark
+      dockerfile: Dockerfile
+    container_name: spark-worker
+    hostname: spark-worker
+    ports:
+      - "8082:8081"
+    environment:
+      - SPARK_MODE=worker
+      - SPARK_MASTER_URL=spark://spark-master:7077
+      - SPARK_WORKER_MEMORY=2G
+      - SPARK_WORKER_CORES=2
+      - SPARK_RPC_AUTHENTICATION_ENABLED=no
+      - SPARK_RPC_ENCRYPTION_ENABLED=no
+      - SPARK_LOCAL_STORAGE_ENCRYPTION_ENABLED=no
+      - SPARK_SSL_ENABLED=no
+      - SPARK_USER=spark
+      - SPARK_LOG_LEVEL=INFO
+    volumes:
+      - ./spark/spark-apps:/opt/spark-apps:rw
+      - ./spark/spark-data:/opt/spark-data:rw
+      - ./spark/additional-jars:/opt/bitnami/spark/.ivy2:rw
+    networks:
+      - internal-network
+    depends_on:
+      - spark-master
+    restart: unless-stopped
+
+  postgres_airflow:
+    image: postgres:13-alpine
+    container_name: postgres_airflow_db
+    environment:
+      - POSTGRES_USER=airflow_user
+      - POSTGRES_PASSWORD=airflow_pass
+      - POSTGRES_DB=airflow_db
+    volumes:
+      - postgres_data_vol:/var/lib/postgresql/data
+    ports:
+      - "5436:5432"
+    networks:
+      - internal-network
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "airflow_user", "-d", "airflow_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    depends_on:
+      - spark-master
+      - spark-worker
+    restart: unless-stopped
+
+  airflow-init:
+    <<: *airflow-common
+    container_name: airflow_init_minimal
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - |
+        airflow db migrate
+        airflow users create \
+          --username admin \
+          --firstname Admin \
+          --lastname User \
+          --role Admin \
+          --email admin@example.com \
+          --password admin || true
+    networks:
+      - internal-network
+
+  airflow-scheduler:
+    <<: *airflow-common
+    container_name: airflow_scheduler_minimal
+    command: scheduler
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+      postgres_airflow:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - internal-network
+
+  airflow-webserver:
+    <<: *airflow-common
+    container_name: airflow_webserver_minimal
+    command: webserver
+    ports:
+      - "8070:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "curl --fail http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+      postgres_airflow:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - internal-network
+
+networks:
+  internal-network:
+    driver: bridge
+
+volumes:
+  kafka1_data_vol:
+    driver: local
+  # kafka2_data_vol: # Can be removed
+  #   driver: local
+  # kafka3_data_vol: # Can be removed
+  #   driver: local
+  postgres_data_vol:
+    driver: local

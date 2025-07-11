@@ -148,3 +148,140 @@ The pipeline exposes several UIs for monitoring and interaction:
     -   **Solution:** Add the missing package to the correct `requirements.txt` file (e.g., `dashboard/requirements.txt`) and rebuild the image with `docker-compose build --no-cache <service_name>`.
 -   **Airflow DAG tasks fail:**
     -   **Solution:** Click on the failed task (red square) in the Airflow UI Grid View, then click "Logs" to see the specific error message from the task's execution. This is the most effective way to debug DAG issues.
+
+## ⚡ Quick Start with `make`
+
+For experienced users who have the prerequisites installed, you can get the entire pipeline running with these simple commands:
+
+1.  **Clone the repository:**
+    ```bash
+    git clone https://github.com/tamereissa77/incident-mgmt-app-V1.0.git
+    cd incident-mgmt-app-V1.0
+    ```
+2.  **Create your environment file:**
+    Create a file named `.env` and add your `GEMINI_API_KEY`.
+    ```
+    GEMINI_API_KEY=your_google_api_key_here
+    ```
+3.  **Start the pipeline:**
+    ```bash
+    make start
+    ```
+4.  **Trigger the workflow:**
+    ```bash
+    make trigger-dag
+    ```
+5.  **Access the Dashboard:**
+    -   **AI Dashboard:** **[http://localhost:8501](http://localhost:8501)**
+    -   **Airflow UI:** **[http://localhost:8070](http://localhost:8070)** (user: `admin`, pass: `admin`)
+
+---
+## ✨ Features
+
+-   **Real-Time Data Ingestion:** A Python script generates realistic IT incident logs and produces them to a Kafka topic.
+-   **Scalable Messaging:** A single-broker Kafka cluster (easily scalable) acts as the central, fault-tolerant message bus.
+-   **Stream Processing:** An Apache Spark Structured Streaming job consumes logs from Kafka in real-time, enriches the data by parsing messages, and writes the results to a storage layer.
+-   **Workflow Orchestration:** Apache Airflow manages the entire pipeline, from starting the data producer to submitting the Spark processing job.
+-   **Interactive AI Dashboard:** A Streamlit web application provides a real-time view of processed incidents, allowing users to select an incident for deeper analysis.
+-   **AI-Powered Root Cause Analysis:** Integration with the **Google Gemini 1.5 Pro API** to provide expert-level root cause analysis, generate a plausible timeline of events, and recommend a detailed action plan.
+-   **Fully Containerized:** The entire stack is defined in `docker-compose.yml`, ensuring easy setup, portability, and consistent environments.
+
+---
+
+## 📋 Prerequisites
+
+Before you begin, ensure you have the following installed on your system:
+
+-   **[Docker Desktop](https://www.docker.com/products/docker-desktop/)**: The entire application stack runs in Docker containers.
+-   **WSL 2 (for Windows users)**: Docker Desktop on Windows requires the Windows Subsystem for Linux 2.
+    -   **Important:** Ensure your WSL 2 is allocated sufficient resources. A minimum of **8GB of memory** is recommended. You can configure this in a `.wslconfig` file in your user profile directory (`%userprofile%`).
+-   **[Git](https://git-scm.com/)**: For cloning the repository.
+-   **Make (for Windows users)**: To use the `Makefile`, you may need to install `make`. This can be done easily via [Chocolatey](https://chocolatey.org/) by running `choco install make`.
+
+---
+
+## ▶️ How to Run the Pipeline (with `make`)
+
+This project uses a `Makefile` to simplify the Docker Compose commands.
+
+### 1. Clone the Repository & Configure API Key
+
+First, clone the repository and create your `.env` file for the Gemini API key.
+
+```bash
+git clone https://github.com/tamereissa77/incident-mgmt-app-V1.0.git
+cd incident-mgmt-app-V1.0
+```
+
+Create a file named `.env` and add your key:
+```
+GEMINI_API_KEY=your_google_api_key_here
+```
+
+### 2. Start the Pipeline
+
+This single command builds the necessary Docker images and starts all the services in the background.
+
+```bash
+make start
+```
+
+### 3. Trigger the Pipeline Workflow
+
+The infrastructure is running, but the data flow is initiated by Airflow. Trigger the main DAG with this command:
+
+```bash
+make trigger-dag
+```
+
+The `log-generator` will now start producing data, and the Spark job will begin processing it.
+
+### 4. Monitor and Analyze
+
+-   **Check the status of all services:**
+    ```bash
+    make status
+    ```
+-   **Follow the logs of a specific service:**
+    ```bash
+    make logs-airflow
+    make logs-spark
+    make logs-producer
+    ```
+-   **Open the dashboards** to view the pipeline in action.
+
+---
+
+## 🌐 Accessing Services
+
+The pipeline exposes several UIs for monitoring and interaction:
+
+| Service                       | URL                                     | Description                               |
+| ----------------------------- | --------------------------------------- | ----------------------------------------- |
+| **Tamer Analysis Dashboard**  | **[http://localhost:8501](http://localhost:8501)** | **Main application UI for AI analysis.**    |
+| **Airflow UI**                | [http://localhost:8070](http://localhost:8070) | Orchestration and DAG monitoring.         |
+| **Spark Master UI**           | [http://localhost:8080](http://localhost:8080) | View running and completed Spark jobs.    |
+| **Confluent Control Center**  | [http://localhost:9021](http://localhost:9021) | Monitor Kafka topics and message flow.    |
+
+---
+
+## ⏹️ Stopping the Pipeline
+
+### Graceful Stop
+
+This command will stop and remove all the running containers for this project. Your data volumes (Kafka data, PostgreSQL DB) will be preserved.
+
+```bash
+make down
+```
+
+### Deep Clean
+
+This command will stop and remove everything: containers, the Docker network, **and all data volumes**. Use this when you want a completely fresh start.
+
+```bash
+make clean
+```
+*(You will be asked to confirm before data is deleted.)*
+
+---

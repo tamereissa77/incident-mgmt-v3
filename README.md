@@ -5,54 +5,8 @@ This project demonstrates a complete, end-to-end, real-time data pipeline design
 This repository is an ideal learning resource for data engineers, DevOps engineers, and SREs interested in modern data stacks and the practical application of GenAI in operations.
 
 ## Architecture Diagram
+<img width="3379" height="3840" alt="technical diagram _ Mermaid Chart-2025-07-11-195556" src="https://github.com/user-attachments/assets/01ca4bf7-bf9a-41d2-8384-7077923d117e" />
 
-graph TD
-    subgraph User Interaction
-        U(User)
-    end
-
-    subgraph Orchestration Layer [Apache Airflow]
-        A_UI(Airflow Web UI) --> A_SCH(Airflow Scheduler)
-        A_SCH --> A_DB[(PostgreSQL DB)]
-        A_SCH --> A_DAG(stream_orch_dag.py)
-    end
-    
-    subgraph Data Pipeline
-        direction LR
-        subgraph Data Generation
-            LG(log-generator.py)
-        end
-        subgraph Ingestion [Kafka]
-            K(Kafka Broker <br> Topic: incidents)
-        end
-        subgraph Processing [Spark]
-            SM(Spark Master) --> SW(Spark Worker)
-            SW --> SPARK_APP(stream_processing.py)
-        end
-        subgraph Storage
-            CSV[(Hourly CSV Files)]
-        end
-    end
-
-    subgraph AI Analysis [Streamlit & Gemini]
-        DASH(Tamer AI Dashboard)
-        API{Gemini 1.5 Pro API}
-    end
-
-    %% Define High-Level Connections
-    U -- "Monitors & Triggers" --> A_UI
-    
-    A_DAG -- "Starts" --> LG
-    A_DAG -- "Submits Job" --> SM
-    
-    LG -- "Sends Logs" --> K
-    SPARK_APP -- "Consumes Logs" --> K
-    SPARK_APP -- "Writes Processed CSVs" --> CSV
-    
-    DASH -- "Reads CSVs" --> CSV
-    U -- "Views & Analyzes" --> DASH
-    DASH -- "API Request" --> API
-    API -- "Returns Analysis" --> DASH
 
 ## ✨ Features
 

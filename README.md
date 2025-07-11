@@ -108,6 +108,12 @@ The pipeline exposes several UIs for monitoring and interaction:
 | **Spark Master UI**           | [http://localhost:8080](http://localhost:8080) | View running and completed Spark jobs.    |
 | **Confluent Control Center**  | [http://localhost:9021](http://localhost:9021) | Monitor Kafka topics and message flow.    |
 
+## Stopping all services
+
+make sure you are on the home directory of the docker
+```bash
+docker-compose down -v --remove-orphans
+```
 ## 📂 Project Structure
 
 ```

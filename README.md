@@ -5,11 +5,8 @@ This project demonstrates a complete, end-to-end, real-time data pipeline design
 This repository is an ideal learning resource for data engineers, DevOps engineers, and SREs interested in modern data stacks and the practical application of GenAI in operations.
 
 ## Architecture Diagram
+<img width="3379" height="3840" alt="technical diagram _ Mermaid Chart-2025-07-11-195556" src="https://github.com/user-attachments/assets/01ca4bf7-bf9a-41d2-8384-7077923d117e" />
 
-The pipeline is composed of several key components that work in concert, as illustrated below:
-
-![Architecture Diagram](httpsp://i.imgur.com/gK5eZlA.png)
-*(Assuming you will place the architecture image in an `assets` folder or link to it)*
 
 ## ✨ Features
 
@@ -111,6 +108,12 @@ The pipeline exposes several UIs for monitoring and interaction:
 | **Spark Master UI**           | [http://localhost:8080](http://localhost:8080) | View running and completed Spark jobs.    |
 | **Confluent Control Center**  | [http://localhost:9021](http://localhost:9021) | Monitor Kafka topics and message flow.    |
 
+## Stopping all services
+
+make sure you are on the home directory of the docker
+```bash
+docker-compose down -v --remove-orphans
+```
 ## 📂 Project Structure
 
 ```

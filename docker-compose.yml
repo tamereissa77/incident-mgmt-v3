@@ -1,19 +1,20 @@
 x-airflow-common: &airflow-common
-  image: apache/airflow:2.10.5
+  #image: apache/airflow:2.10.5
+  build: ./airflow
   environment:
     - AIRFLOW__CORE__EXECUTOR=LocalExecutor
     - AIRFLOW__CORE__LOAD_EXAMPLES=False
     - AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION=False
     - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow_user:airflow_pass@postgres_airflow:5432/airflow_db
     - AIRFLOW__WEBSERVER__EXPOSE_CONFIG=True
-    - _PIP_ADDITIONAL_REQUIREMENTS=apache-airflow-providers-docker==3.9.1 requests==2.31.0
+    # - _PIP_ADDITIONAL_REQUIREMENTS=apache-airflow-providers-docker==3.9.1 requests==2.31.0
   volumes:
     - ./airflow/dags:/opt/airflow/dags:rw
     - ./airflow/logs:/opt/airflow/logs:rw
     - ./airflow/plugins:/opt/airflow/plugins:rw
     - /var/run/docker.sock:/var/run/docker.sock
     - ./:/opt/project_root
-  user: "airflow"
+  user: "root"
   depends_on:
     postgres_airflow:
       condition: service_healthy
@@ -158,6 +159,7 @@ services:
       dockerfile: Dockerfile
     container_name: spark-master
     hostname: spark-master
+    user: "root"
     ports:
       - "8080:8080"
       - "7077:7077"
@@ -188,6 +190,7 @@ services:
       dockerfile: Dockerfile
     container_name: spark-worker
     hostname: spark-worker
+    user: "root"
     ports:
       - "8082:8081"
     environment:

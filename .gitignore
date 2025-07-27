@@ -19,3 +19,6 @@ spark/spark-data/
 .idea/
 .vscode/
 *.swp
+
+# Spark cache files
+spark/additional-jars/cache/

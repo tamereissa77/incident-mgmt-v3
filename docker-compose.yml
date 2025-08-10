@@ -20,6 +20,24 @@ x-airflow-common: &airflow-common
       condition: service_healthy
 
 services:
+  
+  frontend-ui:
+    build:
+      context: ../ai-sre-insight
+    container_name: frontend-ui
+    ports:
+      - "3000:80"
+    networks:
+      - internal-network
+    # --- THIS IS THE CRITICAL CHANGE ---
+    # We will pass the public URL directly to the Nginx container
+    environment:
+      - VITE_API_URL=http://localhost:7000
+    # --- END OF CHANGE ---
+    restart: unless-stopped
+    depends_on:
+      - dashboard-api
+
   kafka1:
     image: confluentinc/cp-server:7.9.1
     container_name: kafka1

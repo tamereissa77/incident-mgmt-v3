@@ -94,15 +94,22 @@ base_df = deserialized_df.select(
 # Replace the existing enriched_df block with this one
 
 enriched_df = base_df.withColumn(
-    # This pattern is now more specific and will not fail
-    "incident_id", regexp_extract(col("message"), r"(INC-[A-F0-9]+)", 1)
+    # CORRECTED REGEX: Look for INC- followed by ANY word characters (letters, numbers, underscore).
+    # This will correctly capture IDs like INC-3B888150, INC-4E8578CA, etc.
+    "incident_id", regexp_extract(col("message"), r"(INC-\w+)", 1)
 ).withColumn(
-    # This pattern is now more specific
-    "service", regexp_extract(col("message"), r"Service: (\S+?)(?:\sDOWN|\.|$|,)", 1)
+    # CORRECTED REGEX: Look for "Service: " and capture the following word,
+    # stopping at the next period or comma. This is much more reliable.
+    "service", regexp_extract(col("message"), r"Service: (\S+?)(?:[.,]|$)", 1)
 ).withColumn(
-    # This pattern is more robust to handle different sentence endings
-    "category", regexp_extract(col("message"), r"Category: ([\w\s]+?)(?:\.|$|,)", 1)
+    # This regex is okay, but let's make it slightly more robust.
+    "category", regexp_extract(col("message"), r"Category: ([\w\s]+?)(?:[.,]|$)", 1)
 )
+
+# After enrichment, replace any empty strings from failed regex matches with null.
+enriched_df = enriched_df.withColumn("incident_id", when(col("incident_id") == "", None).otherwise(col("incident_id")))
+enriched_df = enriched_df.withColumn("service", when(col("service") == "", None).otherwise(col("service")))
+enriched_df = enriched_df.withColumn("category", when(col("category") == "", None).otherwise(col("category")))
 
 # --- NEW: Aggregation for Incident Alerting ---
 # We group by a 5-minute window and the incident level.

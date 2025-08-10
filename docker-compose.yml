@@ -65,22 +65,41 @@ services:
       retries: 12
     restart: unless-stopped
 
-  # Dash board service
-  dashboard:
+  dashboard-api:
     build:
-      context: ./dashboard
+      context: ./dashboard_api
+    container_name: dashboard-api
+    ports:
+      - "7000:8000" # Expose the API port
+    volumes:
+      # Mount the same data volume so the API can read the CSVs
+      - ./spark/spark-data:/opt/spark-data:ro
+      - ./dashboard_api:/app
+    environment:
+      # You need a .env file in this project with your GEMINI_API_KEY
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+    networks:
+      - internal-network # Use the same network as your other services
+    restart: unless-stopped
+    depends_on:
+      - spark-master
+
+  # Dash board service
+  #dashboard:
+  #  build:
+  #    context: ./dashboard
     
     # --- THIS IS THE LINE TO FIX ---
-    ports:
-      - "8501:8501" # This maps the container's port 8501 to your computer's port 8501
-    volumes:
-      - ./spark/spark-data:/opt/spark-data:ro
+  #  ports:
+  #    - "8501:8501" # This maps the container's port 8501 to your computer's port 8501
+  #  volumes:
+  #    - ./spark/spark-data:/opt/spark-data:ro
     # ... ports, volumes, etc.
-    environment:
-      - GEMINI_API_KEY=AIzaSyBPJFULPCHK_npvQ2r1tu-bwQgtrAbXc94
-    networks:
-      - internal-network
-    restart: unless-stopped
+  #  environment:
+  #    - GEMINI_API_KEY=AIzaSyBPJFULPCHK_npvQ2r1tu-bwQgtrAbXc94
+  #  networks:
+  #    - internal-network
+  #  restart: unless-stopped
 
   schema-registry:
     image: confluentinc/cp-schema-registry:7.9.1

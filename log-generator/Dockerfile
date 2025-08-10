@@ -6,8 +6,11 @@ WORKDIR /app
 COPY requirements.txt requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy the application code
+# Copy the application code AND the new entrypoint script
 COPY log_generator.py log_generator.py
+COPY docker-entrypoint.sh docker-entrypoint.sh
 
-# Set the entrypoint to run the log generator
-ENTRYPOINT ["python", "-u", "log_generator.py"]
+# Set the entrypoint to our new script.
+# The original command is now the CMD, which gets passed as arguments to the entrypoint.
+ENTRYPOINT ["./docker-entrypoint.sh"]
+CMD ["python", "-u", "log_generator.py"]

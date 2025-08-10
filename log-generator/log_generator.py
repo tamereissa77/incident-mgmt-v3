@@ -162,27 +162,36 @@ if __name__ == "__main__":
 
         # Start generating logs indefinitely
         while True:
-            # Poll the producer
-            producer.poll(0)
+            try:
+                producer.poll(0)
 
-            # Generate an incident log entry
-            current_log_time = datetime.now(timezone.utc)
-            log_entry, key = generate_log_entry(current_log_time)
+                current_log_time = datetime.now(timezone.utc)
+                log_entry, key = generate_log_entry(current_log_time)
 
-            # Send log entry to Kafka incidents topic
-            producer.produce(topic="incidents",
-                            key=key,
-                            value=json_serializer(log_entry, SerializationContext("incidents", MessageField.VALUE))
-                            )
-            
-            # Sleep to simulate real-time incident generation
-            # IT incidents happen less frequently than payment transactions
-            sleep(random.uniform(1, 5))  # 1-5 seconds between incidents
+        # The actual sending of the message
+                producer.produce(topic="incidents",
+                                key=key,
+                                value=json_serializer(log_entry, SerializationContext("incidents", MessageField.VALUE))
+                                )
+        
+        # This part only runs if the produce call was successful
+                if counter % 100 == 0:
+                    print(f"Generated {counter} IT incident entries...")
+                counter += 1
 
-            # Print progress every 100 messages (less frequent for incidents)
-            if counter % 100 == 0:
-                print(f"Generated {counter} IT incident entries...")
-            counter += 1
+            except BufferError:
+        # This is a common Kafka error when the producer queue is full
+                print("WARN: Kafka producer queue is full. Polling...")
+                producer.poll(1) # Poll for a full second to clear the buffer
+
+            except Exception as e:
+        # Catch any other unexpected errors
+                print(f"ERROR: An exception occurred in the main loop: {e}")
+                print("WARN: Waiting 10 seconds before retrying...")
+                sleep(10)
+
+    # Sleep outside the try block to ensure it always happens
+            sleep(random.uniform(1, 5))
 
     finally:
         print("Flushing producer...")

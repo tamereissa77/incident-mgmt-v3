@@ -7,6 +7,13 @@ import numpy as np
 import os
 import glob
 import google.generativeai as genai
+from pydantic import BaseModel
+from typing import List, Dict, Any
+
+class ChatRequest(BaseModel):
+    message: str
+    incident_context: List[dict]
+    history: List[Dict[str, Any]]
 
 app = FastAPI(title="Incident Analysis API")
 
@@ -48,35 +55,66 @@ def load_incident_data_sync():
         combined_df['event_time'] = pd.to_datetime(combined_df['event_time'])
         combined_df = combined_df.sort_values('event_time', ascending=False)
     
-    # This function now handles all the cleaning.
     return combined_df.replace({np.nan: None, pd.NaT: None})
 
+# --- THIS IS THE MODIFIED PROMPT FUNCTION ---
 def create_correlation_analysis_prompt(primary_incident, correlated_incidents_df):
-    """Creates a detailed prompt for Gemini AI analysis."""
-    correlated_str = ""
+    """Creates a highly structured prompt for a professional Gemini AI analysis."""
+    
+    correlated_incidents_str = ""
     if not correlated_incidents_df.empty:
         for _, row in correlated_incidents_df.iterrows():
-            correlated_str += f"- Time: {row.get('event_time')} | Level: {row.get('level')} | Message: {row.get('message')}\n"
+            correlated_incidents_str += f"- Time: {row.get('event_time')} | Level: {row.get('level')} | Message: {row.get('message')}\n"
     else:
-        correlated_str = "No other incidents found for this service in the time window."
-    
-    return f"""
-    **PRIMARY INCIDENT FOR ANALYSIS:**
-    - Incident ID: {primary_incident.get('incident_id', 'N/A')}
-    - Raw Message: {primary_incident.get('message', 'N/A')}
+        correlated_incidents_str = "No other incidents found for this service in the time window."
 
-    **CORRELATED INCIDENTS:**
-    {correlated_str}
+    # This new prompt is very specific about the expected Markdown structure, including the table.
+    prompt = f"""
+You are a top-tier Principal Site Reliability Engineer (SRE). Your task is to perform a deep, correlated root cause analysis and generate a report in a specific Markdown format.
 
-    **ANALYSIS REQUIRED:**
-    Provide a root cause analysis and recommended action plan.
-    """
+**Primary Incident for Analysis:**
+- **Incident ID:** `{primary_incident.get('incident_id', 'N/A')}`
+- **Service Affected:** `{primary_incident.get('service', 'N/A')}`
+- **Raw Message:** `{primary_incident.get('message', 'N/A')}`
+
+**Correlated Incidents (for context):**
+{correlated_incidents_str}
+
+**REPORTING INSTRUCTIONS:**
+Generate a report with the following sections. Use Markdown H2 headings (##) for each section title EXACTLY as written below. Use bullet points (-) for lists.
+
+## Incident Summary
+Provide a one-paragraph summary of the entire event, explaining what happened and the immediate impact.
+
+## Correlation and Timeline Analysis
+(Provide a one-paragraph summary of the timeline. Then, YOU MUST create a Markdown table with the headers "Timestamp", "Event ID", and "Explanation". Populate it with the key events in chronological order.)
+EXAMPLE of the required table format:
+| Timestamp | Event ID | Explanation |
+|---|---|---|
+| 2025-08-10 20:53:07 | INC-0C334253 | Hardware failure detected, potential early indicator. |
+| 2025-08-10 20:53:20 | SYS-0434 | Resource thresholds exceeded (CPU, Memory, Disk). |
+| 2025-08-10 21:14:00 | INC-43E30A42 | The primary hardware failure incident occurs. |
+
+## Hypothesized Root Cause
+Based on all available data, state the single most likely root cause. Be specific.
+
+## Recommended Action Plan
+Provide a clear, actionable checklist for remediation in one sentence and then list the following short term and long term actions.
+
+### Short-term (Immediate Containment)
+- Actionable step 1 (e.g., Roll back the affected service).
+- Actionable step 2 (e.g., Increase resource allocation).
+
+### Long-term (Prevention)
+- Actionable step 1 (e.g., Add memory profiling to the CI/CD pipeline).
+- Actionable step 2 (e.g., Implement stricter alerting).
+"""
+    return prompt
 
 # --- API Endpoints ---
 
 @app.get("/api/kpis")
 async def get_kpis():
-    # We get the already cleaned DataFrame here.
     df = load_incident_data_sync()
     if df.empty:
         return {"total": 0, "critical": 0, "warning": 0, "services": 0}
@@ -90,7 +128,6 @@ async def get_kpis():
 
 @app.get("/api/incidents")
 async def get_incidents():
-    # We get the already cleaned DataFrame here.
     df = load_incident_data_sync()
     if df.empty:
         return []
@@ -101,7 +138,6 @@ async def analyze_incident(incident_id: str):
     if not model:
         raise HTTPException(status_code=500, detail="Gemini API is not configured on the server.")
     
-    # We get the already cleaned DataFrame here.
     df = load_incident_data_sync()
     if df.empty:
         raise HTTPException(status_code=404, detail="Incident data is currently unavailable.")
@@ -128,3 +164,33 @@ async def analyze_incident(incident_id: str):
     except Exception as e:
         print(f"ERROR during Gemini analysis: {e}")
         raise HTTPException(status_code=500, detail=f"An error occurred during AI analysis: {e}")
+    
+@app.post("/api/chat")
+async def handle_chat(request: ChatRequest):
+    if not model:
+        raise HTTPException(status_code=500, detail="Gemini API is not configured on the server.")
+
+    history_str = "\n".join([f"- {msg.get('role')}: {msg.get('content')}" for msg in request.history])
+    incident_context_str = "\n".join([f"- {inc.get('event_time')}: {inc.get('message')}" for inc in request.incident_context])
+
+    prompt = f"""
+You are a world-class SRE AI Chat Assistant named 'iPulse'. Your goal is to help engineers troubleshoot issues. You have memory of the current conversation.
+
+Current Conversation History (for context):
+{history_str}
+
+Recent Incident Context (for context):
+{incident_context_str}
+
+User's New Message:
+"{request.message}"
+
+Based on the conversation history AND the recent incident context, provide a helpful and relevant response to the user's new message. Address the user directly.
+"""
+
+    try:
+        response = model.generate_content(prompt)
+        return {"reply": response.text}
+    except Exception as e:
+        print(f"ERROR during LLM chat generation: {e}")
+        raise HTTPException(status_code=500, detail=f"An error occurred during AI chat generation: {e}")

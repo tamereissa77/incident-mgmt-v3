@@ -1,5 +1,5 @@
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import col, from_json, when, regexp_extract, to_timestamp, window, expr
+from pyspark.sql.functions import col, from_json, when, regexp_extract, to_timestamp, window
 from pyspark.sql.types import StructType, StructField, StringType
 from datetime import datetime
 import os
@@ -22,6 +22,7 @@ CHECKPOINT_PATH_ENRICHED = "/opt/spark-data/spark_checkpoints/enriched_incidents
 CHECKPOINT_PATH_ALERTS = "/opt/spark-data/spark_checkpoints/alerts_checkpoint"
 
 # --- Schema Definition for Kafka Messages ---
+# This schema must match the JSON structure being sent to Kafka.
 LOG_EVENT_SCHEMA = StructType([
     StructField("timestamp", StringType(), True),
     StructField("level", StringType(), True),
@@ -37,16 +38,15 @@ kafka_df = spark.readStream \
     .option("failOnDataLoss", "false") \
     .load()
 
-# --- FINAL CORRECTED Base Processing ---
-# The Confluent JSONSerializer adds a 5-byte prefix (magic byte + schema ID).
-# We must strip this prefix before casting to string and parsing.
+# --- CORRECTED Base Processing: Use native from_json function ---
+# This is the main correction. We remove the Python UDF and use Spark's built-in
+# function for parsing JSON, which is much more efficient and reliable.
 base_df = kafka_df.select(
-    from_json(
-        # Use expr() to call the substring function to skip the first 5 bytes.
-        expr("substring(value, 6)").cast("string"),
-        LOG_EVENT_SCHEMA
-    ).alias("data")
+    # 1. Cast the binary 'value' from Kafka into a readable string.
+    # 2. Use from_json to parse the string using our defined schema.
+    from_json(col("value").cast("string"), LOG_EVENT_SCHEMA).alias("data")
 ).select(
+    # 3. Select the fields from the parsed data structure.
     to_timestamp(col("data.timestamp")).alias("event_time"),
     col("data.level").alias("level"),
     col("data.message").alias("message")
@@ -77,15 +77,21 @@ aggregated_df = enriched_df \
 
 # --- Alerting Logic for High-Severity Incidents ---
 def process_alerts_batch(batch_df, batch_id):
-    if batch_df.isEmpty(): return
+    if batch_df.isEmpty():
+        return
+
     print(f"--- Processing Alerts Batch {batch_id} ---")
+    
     pandas_df = batch_df.select(
         col("window.start").alias("window_start"),
         col("window.end").alias("window_end"),
         col("level"),
         col("count")
     ).toPandas()
-    if pandas_df.empty: return
+
+    if pandas_df.empty:
+        return
+
     for row in pandas_df.itertuples():
         if row.level == "ERROR" and row.count >= 3:
             alert_message = f"ALERT: High number of critical incidents! {row.count} ERRORs detected between {row.window_start} and {row.window_end}."
@@ -94,11 +100,18 @@ def process_alerts_batch(batch_df, batch_id):
 # --- Function to Write Enriched Incident Data to Hourly Files ---
 def write_enriched_to_hourly_csv(batch_df, batch_id):
     if batch_df.isEmpty(): return
+
     hourly_file_suffix = datetime.now().strftime("%Y-%m-%d_%H")
     output_file_path = os.path.join(OUTPUT_PATH_ENRICHED, f"incidents_{hourly_file_suffix}.csv")
+    
     print(f"Batch {batch_id}: Writing {batch_df.count()} enriched incident rows to {output_file_path}")
+
+    # Explicitly select and order columns for the output CSV
     output_df = batch_df.select("event_time", "level", "message", "incident_id", "service", "category")
+    
     pandas_df = output_df.coalesce(1).toPandas()
+
+    # Append to the hourly file, writing the header only if the file is new
     file_exists = os.path.exists(output_file_path)
     pandas_df.to_csv(output_file_path, mode='a', header=not file_exists, index=False)
 

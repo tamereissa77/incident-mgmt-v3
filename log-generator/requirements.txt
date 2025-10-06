@@ -1,4 +1,5 @@
 faker
+orjson
 confluent_kafka
 httpx
 attrs

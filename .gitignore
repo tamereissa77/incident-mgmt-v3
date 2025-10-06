@@ -1,24 +1,37 @@
-# Ignore Python cache files
+# --- Python ---
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
-
-# Ignore Virtual Environment folders
-.venv/
-venv/
+.Python
 env/
+venv/
+pip-selfcheck.json
 
-# Ignore generated log files from Airflow
-airflow/logs/
+# --- Docker ---
+docker-compose.override.yml
 
-# Ignore generated data and checkpoints from Spark
+# --- Spark Data & Checkpoints ---
+# IMPORTANT: Do not commit generated data or state
 spark/spark-data/
+spark/spark_checkpoints/
 
-# Ignore other common generated files
-.idea/
+# --- Airflow ---
+# Ignore Airflow logs, temp files, and the local database
+logs/
+*.db
+*.db-journal
+airflow.cfg
+unittests.cfg
+webserver_config.py
+.airflow/
+
+# --- IDE & System Files ---
 .vscode/
+.idea/
+.DS_Store
 *.swp
+
+# --- Environment Variables ---
 .env
-# Spark cache files
-spark/additional-jars/cache/
+*.env

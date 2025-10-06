@@ -1,5 +1,4 @@
 x-airflow-common: &airflow-common
-  #image: apache/airflow:2.10.5
   build: ./airflow
   environment:
     - AIRFLOW__CORE__EXECUTOR=LocalExecutor
@@ -7,7 +6,6 @@ x-airflow-common: &airflow-common
     - AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION=False
     - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow_user:airflow_pass@postgres_airflow:5432/airflow_db
     - AIRFLOW__WEBSERVER__EXPOSE_CONFIG=True
-    # - _PIP_ADDITIONAL_REQUIREMENTS=apache-airflow-providers-docker==3.9.1 requests==2.31.0
   volumes:
     - ./airflow/dags:/opt/airflow/dags:rw
     - ./airflow/logs:/opt/airflow/logs:rw
@@ -29,11 +27,8 @@ services:
       - "3000:80"
     networks:
       - internal-network
-    # --- THIS IS THE CRITICAL CHANGE ---
-    # We will pass the public URL directly to the Nginx container
     environment:
       - VITE_API_URL=http://localhost:7000
-    # --- END OF CHANGE ---
     restart: unless-stopped
     depends_on:
       - dashboard-api
@@ -48,25 +43,22 @@ services:
     environment:
       KAFKA_NODE_ID: 1
       KAFKA_PROCESS_ROLES: 'broker,controller'
-      # ---- CORRECTED FOR SINGLE BROKER ----
       KAFKA_CONTROLLER_QUORUM_VOTERS: '1@kafka1:9071'
       KAFKA_LISTENERS: 'PLAINTEXT://kafka1:29092,CONTROLLER://kafka1:9071,PLAINTEXT_HOST://0.0.0.0:9092'
       KAFKA_ADVERTISED_LISTENERS: 'PLAINTEXT://kafka1:29092,PLAINTEXT_HOST://localhost:9092'
       KAFKA_INTER_BROKER_LISTENER_NAME: 'PLAINTEXT'
       KAFKA_CONTROLLER_LISTENER_NAMES: 'CONTROLLER'
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: 'CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT'
-      # ---- CORRECTED REPLICATION FACTORS TO 1 ----
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
       KAFKA_CONFLUENT_LICENSE_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_CONFLUENT_BALANCER_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
-      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1 # <-- Must be <= replication factor
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
       KAFKA_JMX_PORT: 9101
       KAFKA_JMX_HOSTNAME: localhost
       KAFKA_CONFLUENT_SCHEMA_REGISTRY_URL: http://schema-registry:8081
       KAFKA_METRIC_REPORTERS: io.confluent.metrics.reporter.ConfluentMetricsReporter
-      # ---- CORRECTED BOOTSTRAP SERVERS ----
       CONFLUENT_METRICS_REPORTER_BOOTSTRAP_SERVERS: 'kafka1:29092'
       CONFLUENT_METRICS_REPORTER_TOPIC_REPLICAS: 1
       KAFKA_LOG_DIRS: '/var/lib/kafka/data'
@@ -88,36 +80,17 @@ services:
       context: ./dashboard_api
     container_name: dashboard-api
     ports:
-      - "7000:8000" # Expose the API port
+      - "7000:8000"
     volumes:
-      # Mount the same data volume so the API can read the CSVs
       - ./spark/spark-data:/opt/spark-data:ro
-      - ./dashboard_api:/app
+      
     environment:
-      # You need a .env file in this project with your GEMINI_API_KEY
       - GEMINI_API_KEY=${GEMINI_API_KEY}
     networks:
-      - internal-network # Use the same network as your other services
+      - internal-network
     restart: unless-stopped
     depends_on:
       - spark-master
-
-  # Dash board service
-  #dashboard:
-  #  build:
-  #    context: ./dashboard
-    
-    # --- THIS IS THE LINE TO FIX ---
-  #  ports:
-  #    - "8501:8501" # This maps the container's port 8501 to your computer's port 8501
-  #  volumes:
-  #    - ./spark/spark-data:/opt/spark-data:ro
-    # ... ports, volumes, etc.
-  #  environment:
-  #    - GEMINI_API_KEY=AIzaSyBPJFULPCHK_npvQ2r1tu-bwQgtrAbXc94
-  #  networks:
-  #    - internal-network
-  #  restart: unless-stopped
 
   schema-registry:
     image: confluentinc/cp-schema-registry:7.9.1
@@ -125,13 +98,11 @@ services:
     hostname: schema-registry
     ports:
       - "8081:8081"
-    # ---- CORRECTED DEPENDENCIES ----
     depends_on:
       kafka1:
         condition: service_healthy
     environment:
       SCHEMA_REGISTRY_HOST_NAME: schema-registry
-      # ---- CORRECTED BOOTSTRAP SERVERS ----
       SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: 'kafka1:29092'
       SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8081
     networks:
@@ -147,7 +118,6 @@ services:
     image: confluentinc/cp-enterprise-control-center:7.9.1
     hostname: control-center
     container_name: control-center
-    # ---- CORRECTED DEPENDENCIES ----
     depends_on:
       kafka1:
         condition: service_healthy
@@ -156,7 +126,6 @@ services:
     ports:
       - "9021:9021"
     environment:
-      # ---- CORRECTED BOOTSTRAP SERVERS & REPLICATION ----
       CONTROL_CENTER_BOOTSTRAP_SERVERS: 'kafka1:29092'
       CONTROL_CENTER_SCHEMA_REGISTRY_URL: "http://schema-registry:8081"
       CONTROL_CENTER_REPLICATION_FACTOR: 1
@@ -183,7 +152,6 @@ services:
     hostname: log-generator
     networks:
       - internal-network
-    # ---- CORRECTED DEPENDENCIES ----
     depends_on:
       kafka1:
         condition: service_healthy
@@ -202,18 +170,14 @@ services:
       - "7077:7077"
     environment:
       - SPARK_MODE=master
-      - SPARK_RPC_AUTHENTICATION_ENABLED=no
-      - SPARK_RPC_ENCRYPTION_ENABLED=no
-      - SPARK_LOCAL_STORAGE_ENCRYPTION_ENABLED=no
-      - SPARK_SSL_ENABLED=no
-      - SPARK_USER=spark
+    # --- THIS IS THE FINAL FIX ---
+    command: /opt/spark/bin/spark-class org.apache.spark.deploy.master.Master
+    # --- END OF FIX ---
     volumes:
       - ./spark/spark-apps:/opt/spark-apps:rw
       - ./spark/spark-data:/opt/spark-data:rw
-      - ./spark/additional-jars:/opt/bitnami/spark/.ivy2:rw
     networks:
       - internal-network
-    # ---- CORRECTED DEPENDENCIES ----
     depends_on:
       kafka1:
         condition: service_healthy
@@ -233,18 +197,14 @@ services:
     environment:
       - SPARK_MODE=worker
       - SPARK_MASTER_URL=spark://spark-master:7077
-      - SPARK_WORKER_MEMORY=2G
-      - SPARK_WORKER_CORES=2
-      - SPARK_RPC_AUTHENTICATION_ENABLED=no
-      - SPARK_RPC_ENCRYPTION_ENABLED=no
-      - SPARK_LOCAL_STORAGE_ENCRYPTION_ENABLED=no
-      - SPARK_SSL_ENABLED=no
-      - SPARK_USER=spark
-      - SPARK_LOG_LEVEL=INFO
+      - SPARK_WORKER_MEMORY=4G
+      - SPARK_WORKER_CORES=4
+    # --- THIS IS THE FINAL FIX ---
+    command: /opt/spark/bin/spark-class org.apache.spark.deploy.worker.Worker spark://spark-master:7077
+    # --- END OF FIX ---
     volumes:
       - ./spark/spark-apps:/opt/spark-apps:rw
       - ./spark/spark-data:/opt/spark-data:rw
-      - ./spark/additional-jars:/opt/bitnami/spark/.ivy2:rw
     networks:
       - internal-network
     depends_on:
@@ -332,9 +292,5 @@ networks:
 volumes:
   kafka1_data_vol:
     driver: local
-  # kafka2_data_vol: # Can be removed
-  #   driver: local
-  # kafka3_data_vol: # Can be removed
-  #   driver: local
   postgres_data_vol:
     driver: local

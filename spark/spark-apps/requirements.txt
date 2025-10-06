@@ -1,4 +1,5 @@
 confluent_kafka
+requests
 httpx
 attrs
 cachetools

@@ -22,7 +22,7 @@ fi
 
 # This command remains the same
 submit_spark_command = """
-docker exec spark-master spark-submit \
+docker exec spark-master /opt/spark/bin/spark-submit \
   --master spark://spark-master:7077 \
   --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.0 \
   /opt/spark-apps/stream_processing.py

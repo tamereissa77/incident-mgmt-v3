@@ -9,6 +9,7 @@ import glob
 import google.generativeai as genai
 from pydantic import BaseModel
 from typing import List, Dict, Any
+import json
 
 class ChatRequest(BaseModel):
     message: str
@@ -17,13 +18,21 @@ class ChatRequest(BaseModel):
 
 app = FastAPI(title="Incident Analysis API")
 
+# --- THIS IS THE FINAL FIX ---
+# Add the CORS middleware to allow requests from your frontend.
+origins = [
+    "http://localhost:3000",  # The origin of your frontend app
+    "http://127.0.0.1:3000", # An alternative way to access the frontend
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=origins,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["*"],  # Allows all methods (GET, POST, etc.)
+    allow_headers=["*"],  # Allows all headers
 )
+# --- END OF FIX ---
 
 INCIDENT_DATA_PATH = "/opt/spark-data/data/enriched_incidents_hourly/"
 
@@ -32,30 +41,51 @@ GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
 model = None
 if GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY)
-    model = genai.GenerativeModel('gemini-1.5-pro-latest')
+    model = genai.GenerativeModel('gemini-pro')
 else:
     print("WARNING: GEMINI_API_KEY environment variable not found!")
 
 # --- Helper Functions ---
 
+# --- THIS IS THE ONLY FUNCTION THAT CHANGES ---
 def load_incident_data_sync():
-    """Loads and cleans incident data from CSV files."""
+    """Loads and cleans incident data, correctly parsing CSVs with headers."""
+    INCIDENT_DATA_PATH = "/opt/spark-data/data/enriched_incidents_hourly/"
     if not os.path.exists(INCIDENT_DATA_PATH):
+        print("Warning: Incident data path does not exist.")
         return pd.DataFrame()
+    
+    # --- THE FINAL FIX: Use a simpler, direct glob pattern ---
     csv_files = glob.glob(os.path.join(INCIDENT_DATA_PATH, "*.csv"))
+    # --- END OF FIX ---
+
     if not csv_files:
+        print("Warning: No CSV files found in the incident data path.")
         return pd.DataFrame()
-    
-    dataframes = [pd.read_csv(file) for file in csv_files if os.path.getsize(file) > 0]
+
+    dataframes = []
+    for file in csv_files:
+        if os.path.getsize(file) > 10: 
+            try:
+                df = pd.read_csv(file)
+                dataframes.append(df)
+            except Exception as e:
+                print(f"Skipping file {file} due to error: {e}")
+                continue
+
     if not dataframes:
+        print("Warning: No valid dataframes could be loaded.")
         return pd.DataFrame()
     
-    combined_df = pd.concat(dataframes, ignore_index=True)
-    if 'event_time' in combined_df.columns:
-        combined_df['event_time'] = pd.to_datetime(combined_df['event_time'])
-        combined_df = combined_df.sort_values('event_time', ascending=False)
+    final_df = pd.concat(dataframes, ignore_index=True)
     
-    return combined_df.replace({np.nan: None, pd.NaT: None})
+    if 'event_time' in final_df.columns:
+        final_df['event_time'] = pd.to_datetime(final_df['event_time'], errors='coerce')
+        final_df.dropna(subset=['event_time'], inplace=True)
+        final_df = final_df.sort_values('event_time', ascending=False)
+    
+    return final_df.replace({np.nan: None, pd.NaT: None})
+# --- END OF THE ONLY FUNCTION THAT CHANGES ---
 
 # --- THIS IS THE MODIFIED PROMPT FUNCTION ---
 def create_correlation_analysis_prompt(primary_incident, correlated_incidents_df):

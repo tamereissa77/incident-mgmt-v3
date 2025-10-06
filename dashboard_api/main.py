@@ -10,6 +10,11 @@ import google.generativeai as genai
 from pydantic import BaseModel
 from typing import List, Dict, Any
 import json
+import logging
+
+# --- Logging Configuration ---
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 class ChatRequest(BaseModel):
     message: str
@@ -18,49 +23,52 @@ class ChatRequest(BaseModel):
 
 app = FastAPI(title="Incident Analysis API")
 
-# --- THIS IS THE FINAL FIX ---
-# Add the CORS middleware to allow requests from your frontend.
+# --- CORS Middleware ---
 origins = [
-    "http://localhost:3000",  # The origin of your frontend app
-    "http://127.0.0.1:3000", # An alternative way to access the frontend
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
 ]
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
     allow_credentials=True,
-    allow_methods=["*"],  # Allows all methods (GET, POST, etc.)
-    allow_headers=["*"],  # Allows all headers
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
-# --- END OF FIX ---
 
 INCIDENT_DATA_PATH = "/opt/spark-data/data/enriched_incidents_hourly/"
 
-# Gemini Configuration
-GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
+# --- CORRECTED: Gemini Configuration & Initialization ---
+# This block runs once when the server starts up.
 model = None
-if GEMINI_API_KEY:
-    genai.configure(api_key=GEMINI_API_KEY)
-    model = genai.GenerativeModel('gemini-pro')
-else:
-    print("WARNING: GEMINI_API_KEY environment variable not found!")
+try:
+    # 1. Use the standardized environment variable name.
+    GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY')
+    if not GOOGLE_API_KEY:
+        logger.error("FATAL: GOOGLE_API_KEY environment variable not found!")
+        # 'model' will remain None, and the API will return a 503 error.
+    else:
+        genai.configure(api_key=GOOGLE_API_KEY)
+        # 2. Use the exact model name confirmed to be available to you.
+        model = genai.GenerativeModel('gemini-2.5-pro')
+        logger.info("Successfully initialized Gemini model: gemini-2.5-pro")
+except Exception as e:
+    logger.error(f"FATAL: An error occurred during Gemini model initialization: {e}")
+    # 'model' will remain None in case of an error.
 
 # --- Helper Functions ---
 
-# --- THIS IS THE ONLY FUNCTION THAT CHANGES ---
 def load_incident_data_sync():
     """Loads and cleans incident data, correctly parsing CSVs with headers."""
-    INCIDENT_DATA_PATH = "/opt/spark-data/data/enriched_incidents_hourly/"
     if not os.path.exists(INCIDENT_DATA_PATH):
-        print("Warning: Incident data path does not exist.")
+        logger.warning("Incident data path does not exist.")
         return pd.DataFrame()
     
-    # --- THE FINAL FIX: Use a simpler, direct glob pattern ---
     csv_files = glob.glob(os.path.join(INCIDENT_DATA_PATH, "*.csv"))
-    # --- END OF FIX ---
 
     if not csv_files:
-        print("Warning: No CSV files found in the incident data path.")
+        logger.warning("No CSV files found in the incident data path.")
         return pd.DataFrame()
 
     dataframes = []
@@ -70,11 +78,11 @@ def load_incident_data_sync():
                 df = pd.read_csv(file)
                 dataframes.append(df)
             except Exception as e:
-                print(f"Skipping file {file} due to error: {e}")
+                logger.error(f"Skipping file {file} due to error: {e}")
                 continue
 
     if not dataframes:
-        print("Warning: No valid dataframes could be loaded.")
+        logger.warning("No valid dataframes could be loaded.")
         return pd.DataFrame()
     
     final_df = pd.concat(dataframes, ignore_index=True)
@@ -85,9 +93,7 @@ def load_incident_data_sync():
         final_df = final_df.sort_values('event_time', ascending=False)
     
     return final_df.replace({np.nan: None, pd.NaT: None})
-# --- END OF THE ONLY FUNCTION THAT CHANGES ---
 
-# --- THIS IS THE MODIFIED PROMPT FUNCTION ---
 def create_correlation_analysis_prompt(primary_incident, correlated_incidents_df):
     """Creates a highly structured prompt for a professional Gemini AI analysis."""
     
@@ -98,7 +104,6 @@ def create_correlation_analysis_prompt(primary_incident, correlated_incidents_df
     else:
         correlated_incidents_str = "No other incidents found for this service in the time window."
 
-    # This new prompt is very specific about the expected Markdown structure, including the table.
     prompt = f"""
 You are a top-tier Principal Site Reliability Engineer (SRE). Your task is to perform a deep, correlated root cause analysis and generate a report in a specific Markdown format.
 
@@ -165,8 +170,12 @@ async def get_incidents():
 
 @app.post("/api/analyze/{incident_id}")
 async def analyze_incident(incident_id: str):
+    # This check now returns a clearer error if the model failed to load on startup.
     if not model:
-        raise HTTPException(status_code=500, detail="Gemini API is not configured on the server.")
+        raise HTTPException(
+            status_code=503, 
+            detail="Gemini API is not configured or failed to initialize on the server."
+        )
     
     df = load_incident_data_sync()
     if df.empty:
@@ -192,13 +201,16 @@ async def analyze_incident(incident_id: str):
         response = model.generate_content(prompt)
         return {"analysis": response.text}
     except Exception as e:
-        print(f"ERROR during Gemini analysis: {e}")
+        logger.error(f"An error occurred during Gemini analysis call: {e}")
         raise HTTPException(status_code=500, detail=f"An error occurred during AI analysis: {e}")
     
 @app.post("/api/chat")
 async def handle_chat(request: ChatRequest):
     if not model:
-        raise HTTPException(status_code=500, detail="Gemini API is not configured on the server.")
+        raise HTTPException(
+            status_code=503, 
+            detail="Gemini API is not configured or failed to initialize on the server."
+        )
 
     history_str = "\n".join([f"- {msg.get('role')}: {msg.get('content')}" for msg in request.history])
     incident_context_str = "\n".join([f"- {inc.get('event_time')}: {inc.get('message')}" for inc in request.incident_context])
@@ -222,5 +234,5 @@ Based on the conversation history AND the recent incident context, provide a hel
         response = model.generate_content(prompt)
         return {"reply": response.text}
     except Exception as e:
-        print(f"ERROR during LLM chat generation: {e}")
+        logger.error(f"An error occurred during LLM chat generation: {e}")
         raise HTTPException(status_code=500, detail=f"An error occurred during AI chat generation: {e}")

@@ -85,7 +85,7 @@ services:
       - ./spark/spark-data:/opt/spark-data:ro
       
     environment:
-      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
     networks:
       - internal-network
     restart: unless-stopped
